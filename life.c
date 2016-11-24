@@ -7,6 +7,7 @@
 #include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <pthread.h>
 
 /**
@@ -19,7 +20,7 @@
   b2 = temp; \
 } while(0)
 
-#define BOARD( __board, __i, __j )  (__board[(__i) + LDA*(__j)])
+#define BOARD( __board, __i, __j )  (__board[(__i) + nrows*(__j)])
 
 void *process(void *args);
 //class argument;
@@ -29,77 +30,75 @@ typedef struct argument {
   char* inboard;
   int nrows;
   int ncols;
-  int start;
-  int end;
+  int row_start;
+  int num_rows;
 }argument;
 
-unsigned num_threads = 1;
 
-char*
-game_of_life (char* outboard, 
-  char* inboard,
-  const int nrows,
-  const int ncols,
-  const int gens_max)
-{ 
-  int i,j,curgen;
+
+char *game_of_life (char* outboard, char* inboard, const int nrows, const int ncols, const int gens_max) { 
+
+  int num_threads = 4;
+
+  int i,curgen;
   int start_row = 0;
   int num_rows_per_thread = nrows / num_threads;
-  int end_row = num_rows_per_thread;
-     
-  pthread_t threads[num_threads];
+
+  /* Initialize arguments for threads */
   argument *args = malloc(num_threads * sizeof(argument));
- 
-  for (i=0; i<num_threads; i++){
-    args[i].start = start_row;
-    args[i].end = end_row+1;
+  for (i=0; i<num_threads; i++) {
+    args[i].row_start = start_row;
+    args[i].num_rows = num_rows_per_thread;
     args[i].nrows = nrows;
     args[i].ncols = ncols;
-          
+
     start_row += num_rows_per_thread;
-    end_row += num_rows_per_thread;
-          
   }
-     
-  for (curgen=0; curgen<gens_max;curgen++){
-    for (i=0; i<num_threads; i++){
+
+  /* Create threads */
+  pthread_t threads[num_threads];
+
+  for (curgen=0; curgen<gens_max; curgen++) {
+
+    memmove (outboard, inboard, nrows * ncols * sizeof (char));
+
+    for (i=0; i<num_threads; i++) {
+      /* Update inboard and outboard after each generation */
       args[i].outboard = outboard;
       args[i].inboard = inboard;
+
       pthread_create(&threads[i], NULL, process, (void*)&args[i]);
     }
-     
-    for (j=0; i<num_threads; i++){
-      pthread_join(threads[j], NULL);
+
+    for (i=0; i<num_threads; i++){
+      pthread_join(threads[i], NULL);
     }
-          
+
     SWAP_BOARDS( outboard, inboard );
   }
 
-  
   free(args);
   return inboard;
-
 }
 
 
 void *process(void *args)
 {
-    /* HINT: in the parallel decomposition, LDA may not be equal to
-       nrows! */
-    
   int i, j;
   argument *val = (argument *) args;
+
   char* outboard = val->outboard;
   char* inboard = val->inboard;
+
+  int row_start = val->row_start;
+  int row_end = val->row_start + val->num_rows;
+
   int nrows = val->nrows;
   int ncols = val->ncols;
-  int start = val->start;
-  int end = val->end;
-  int LDA = end - start +1;
-    
+
   /* HINT: you'll be parallelizing these loop(s) by doing a
   geometric decomposition of the output */
-  for (i = start; i < end; i++){
+  for (i = row_start; i < row_end; i++){
     for (j = 0; j < ncols; j++){
       const int inorth = mod (i-1, nrows);
       const int isouth = mod (i+1, nrows);
@@ -107,22 +106,20 @@ void *process(void *args)
       const int jeast = mod (j+1, ncols);
 
       const char neighbor_count = 
-      BOARD (inboard, inorth, jwest) + 
-      BOARD (inboard, inorth, j) + 
-      BOARD (inboard, inorth, jeast) + 
-      BOARD (inboard, i, jwest) +
-      BOARD (inboard, i, jeast) + 
-      BOARD (inboard, isouth, jwest) +
-      BOARD (inboard, isouth, j) + 
-      BOARD (inboard, isouth, jeast);
+        BOARD (inboard, inorth, jwest) + 
+        BOARD (inboard, inorth, j) + 
+        BOARD (inboard, inorth, jeast) + 
+        BOARD (inboard, i, jwest) +
+        BOARD (inboard, i, jeast) + 
+        BOARD (inboard, isouth, jwest) +
+        BOARD (inboard, isouth, j) + 
+        BOARD (inboard, isouth, jeast);
 
       BOARD(outboard, i, j) = alivep (neighbor_count, BOARD (inboard, i, j));
-
     }
   }
-  
-  return inboard;
 
+  pthread_exit(NULL);
 }
 
 
